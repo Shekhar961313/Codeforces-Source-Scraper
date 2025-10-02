@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 CF_HANDLE = os.environ.get("CF_HANDLE")
 CF_CLEARANCE = os.environ.get("CF_CLEARANCE")
 SESSION_ID = os.environ.get("SESSION_ID")
+USER_AGENT = os.environ.get("USER_AGENT") # Reads your specific User-Agent
 
 PROBLEM_LEVEL_FOLDERS = ["A", "B", "C", "D", "E", "F", "G", "H"]
 OTHER_FOLDER = "Other_Problems"
@@ -14,7 +15,7 @@ OTHER_FOLDER = "Other_Problems"
 
 
 def get_solved_problems(handle):
-    """Fetches all 'OK' submissions from the Codeforces API."""
+    # (This function is unchanged)
     print(f"Fetching solved problems for {handle}...")
     api_url = f"https://codeforces.com/api/user.status?handle={handle}"
     try:
@@ -36,7 +37,7 @@ def get_solved_problems(handle):
         return {}
 
 def scrape_source_code(session, submission_url):
-    """Scrapes the source code from a submission URL using a logged-in session."""
+    # (This function is unchanged)
     try:
         response = session.get(submission_url)
         response.raise_for_status()
@@ -51,21 +52,22 @@ def scrape_source_code(session, submission_url):
         return None
 
 def get_folder_for_level(problem_index):
-    """Determines folder based on problem index (A, B, C...)."""
+    # (This function is unchanged)
     if problem_index and problem_index[0].isalpha():
         return problem_index[0].upper()
     return OTHER_FOLDER
 
 def main():
-    if not all([CF_HANDLE, CF_CLEARANCE, SESSION_ID]):
-        print("Error: Missing required secrets (CF_HANDLE, CF_CLEARANCE, SESSION_ID).")
+    if not all([CF_HANDLE, CF_CLEARANCE, SESSION_ID, USER_AGENT]):
+        print("Error: Missing one or more required secrets (CF_HANDLE, CF_CLEARANCE, SESSION_ID, USER_AGENT).")
         return
 
-    # Create a session and set the cookies to bypass security
     session = requests.Session()
     session.cookies.set('cf_clearance', CF_CLEARANCE)
     session.cookies.set('JSESSIONID', SESSION_ID)
-    session.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    
+    # This is the key change: Use the User-Agent from your secrets
+    session.headers['User-Agent'] = USER_AGENT
     
     solved_submissions = get_solved_problems(CF_HANDLE)
     if not solved_submissions:
@@ -81,7 +83,7 @@ def main():
         
         folder_name = get_folder_for_level(problem_index)
         problem_name = "".join(c for c in problem['name'] if c.isalnum() or c in (' ', '_')).rstrip()
-        file_name = f"{problem['contestId']}{problem_index}-{problem_name}.cpp" # Assuming C++
+        file_name = f"{problem['contestId']}{problem_index}-{problem_name}.cpp"
         file_path = os.path.join(folder_name, file_name)
 
         if not os.path.exists(file_path):
@@ -95,7 +97,7 @@ def main():
                 print(f"Successfully saved source code to {file_path}")
             else:
                 print(f"Failed to get source code for {problem_name}")
-            time.sleep(2) # Be respectful to servers
+            time.sleep(2)
 
     print("Scraping process complete.")
 
