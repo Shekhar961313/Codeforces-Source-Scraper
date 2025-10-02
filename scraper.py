@@ -4,10 +4,11 @@ import requests
 from bs4 import BeautifulSoup
 
 # --- CONFIGURATION ---
-CF_HANDLE = os.environ.get("CF_HANDLE")
-CF_CLEARANCE = os.environ.get("CF_CLEARANCE")
-SESSION_ID = os.environ.get("SESSION_ID")
-USER_AGENT = os.environ.get("USER_AGENT") # Reads your specific User-Agent
+# This is the corrected part. We add .strip() to clean the secret values.
+CF_HANDLE = os.environ.get("CF_HANDLE", "").strip()
+CF_CLEARANCE = os.environ.get("CF_CLEARANCE", "").strip()
+SESSION_ID = os.environ.get("SESSION_ID", "").strip()
+USER_AGENT = os.environ.get("USER_AGENT", "").strip()
 
 PROBLEM_LEVEL_FOLDERS = ["A", "B", "C", "D", "E", "F", "G", "H"]
 OTHER_FOLDER = "Other_Problems"
@@ -59,14 +60,12 @@ def get_folder_for_level(problem_index):
 
 def main():
     if not all([CF_HANDLE, CF_CLEARANCE, SESSION_ID, USER_AGENT]):
-        print("Error: Missing one or more required secrets (CF_HANDLE, CF_CLEARANCE, SESSION_ID, USER_AGENT).")
+        print("Error: Missing required secrets.")
         return
 
     session = requests.Session()
     session.cookies.set('cf_clearance', CF_CLEARANCE)
     session.cookies.set('JSESSIONID', SESSION_ID)
-    
-    # This is the key change: Use the User-Agent from your secrets
     session.headers['User-Agent'] = USER_AGENT
     
     solved_submissions = get_solved_problems(CF_HANDLE)
