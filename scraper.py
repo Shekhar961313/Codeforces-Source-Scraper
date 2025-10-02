@@ -2,42 +2,16 @@ import os
 import time
 import requests
 from bs4 import BeautifulSoup
-import undetected_chromedriver as uc
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.by import By
 
 # --- CONFIGURATION ---
-# These will be read from GitHub Secrets
 CF_HANDLE = os.environ.get("CF_HANDLE")
-CF_USERNAME = os.environ.get("CF_USERNAME")
-CF_PASSWORD = os.environ.get("CF_PASSWORD")
-LOGIN_URL = "https://codeforces.com/enter"
+CF_CLEARANCE = os.environ.get("CF_CLEARANCE")
+SESSION_ID = os.environ.get("SESSION_ID")
+
+PROBLEM_LEVEL_FOLDERS = ["A", "B", "C", "D", "E", "F", "G", "H"]
+OTHER_FOLDER = "Other_Problems"
 # --- END OF CONFIGURATION ---
 
-
-def login(driver, username, password, handle):
-    """Logs into Codeforces using an undetected chromedriver session."""
-    print("Attempting to log in...")
-    try:
-        driver.get(LOGIN_URL)
-        time.sleep(5) # Wait for any initial checks
-
-        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.ID, "handleOrEmail")))
-        handle_input = driver.find_element(By.ID, "handleOrEmail")
-        password_input = driver.find_element(By.ID, "password")
-        login_button = driver.find_element(By.CLASS_NAME, "submit")
-
-        handle_input.send_keys(username)
-        password_input.send_keys(password)
-        login_button.click()
-
-        WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, f"//a[contains(@href, '/profile/{handle}')]")))
-        print("Login successful!")
-        return True
-    except Exception as e:
-        print(f"An error occurred during login: {e}")
-        return False
 
 def get_solved_problems(handle):
     """Fetches all 'OK' submissions from the Codeforces API."""
@@ -49,7 +23,6 @@ def get_solved_problems(handle):
         if data['status'] != 'OK':
             print(f"API Error: {data.get('comment')}")
             return {}
-        
         solved = {}
         for sub in data['result']:
             if sub.get('verdict') == 'OK' and 'contestId' in sub['problem']:
@@ -62,69 +35,69 @@ def get_solved_problems(handle):
         print(f"An error occurred fetching API data: {e}")
         return {}
 
-def scrape_source_code(driver, submission_url):
-    """Navigates to a submission URL and scrapes the source code."""
+def scrape_source_code(session, submission_url):
+    """Scrapes the source code from a submission URL using a logged-in session."""
     try:
-        driver.get(submission_url)
-        # The source code is inside a <pre> tag with the id 'program-source-text'
-        code_element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "program-source-text"))
-        )
+        response = session.get(submission_url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+        code_element = soup.find("pre", id="program-source-text")
+        if not code_element:
+            print(f"Could not find source code element on {submission_url}")
+            return None
         return code_element.text
     except Exception as e:
         print(f"Could not scrape source code from {submission_url}. Error: {e}")
         return None
 
+def get_folder_for_level(problem_index):
+    """Determines folder based on problem index (A, B, C...)."""
+    if problem_index and problem_index[0].isalpha():
+        return problem_index[0].upper()
+    return OTHER_FOLDER
+
 def main():
-    if not all([CF_HANDLE, CF_USERNAME, CF_PASSWORD]):
-        print("Error: Missing one or more required environment variables (CF_HANDLE, CF_USERNAME, CF_PASSWORD).")
+    if not all([CF_HANDLE, CF_CLEARANCE, SESSION_ID]):
+        print("Error: Missing required secrets (CF_HANDLE, CF_CLEARANCE, SESSION_ID).")
         return
 
-    # Use undetected_chromedriver in headless mode for the server
-    options = uc.ChromeOptions()
-    options.add_argument('--headless')
-    options.add_argument('--no-sandbox')
-    options.add_argument('--disable-dev-shm-usage')
-    driver = uc.Chrome(options=options)
+    # Create a session and set the cookies to bypass security
+    session = requests.Session()
+    session.cookies.set('cf_clearance', CF_CLEARANCE)
+    session.cookies.set('JSESSIONID', SESSION_ID)
+    session.headers['User-Agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    
+    solved_submissions = get_solved_problems(CF_HANDLE)
+    if not solved_submissions:
+        print("No solved problems found.")
+        return
 
-    try:
-        if not login(driver, CF_USERNAME, CF_PASSWORD, CF_HANDLE):
-            return
+    for folder in PROBLEM_LEVEL_FOLDERS + [OTHER_FOLDER]:
+        os.makedirs(folder, exist_ok=True)
 
-        solved_submissions = get_solved_problems(CF_HANDLE)
-        if not solved_submissions:
-            print("No solved problems found.")
-            return
+    for problem_id, sub in solved_submissions.items():
+        problem = sub['problem']
+        problem_index = problem['index']
+        
+        folder_name = get_folder_for_level(problem_index)
+        problem_name = "".join(c for c in problem['name'] if c.isalnum() or c in (' ', '_')).rstrip()
+        file_name = f"{problem['contestId']}{problem_index}-{problem_name}.cpp" # Assuming C++
+        file_path = os.path.join(folder_name, file_name)
 
-        # Create a folder to store the code
-        os.makedirs("solutions", exist_ok=True)
-
-        for problem_id, sub in solved_submissions.items():
-            problem = sub['problem']
-            contest_id = problem['contestId']
-            problem_index = problem['index']
-            problem_name = "".join(c for c in problem['name'] if c.isalnum() or c in (' ', '_')).rstrip()
-            submission_id = sub['id']
+        if not os.path.exists(file_path):
+            print(f"Scraping new solution for: {problem_name} ({problem_id})")
+            submission_url = f"https://codeforces.com/contest/{problem['contestId']}/submission/{sub['id']}"
+            source_code = scrape_source_code(session, submission_url)
             
-            file_name = f"{contest_id}{problem_index}-{problem_name}.cpp" # Assuming C++
-            file_path = os.path.join("solutions", file_name)
+            if source_code:
+                with open(file_path, 'w', encoding='utf-8') as f:
+                    f.write(source_code)
+                print(f"Successfully saved source code to {file_path}")
+            else:
+                print(f"Failed to get source code for {problem_name}")
+            time.sleep(2) # Be respectful to servers
 
-            if not os.path.exists(file_path):
-                print(f"Scraping new solution for: {problem_name} ({problem_id})")
-                submission_url = f"https://codeforces.com/contest/{contest_id}/submission/{submission_id}"
-                source_code = scrape_source_code(driver, submission_url)
-                
-                if source_code:
-                    with open(file_path, 'w', encoding='utf-8') as f:
-                        f.write(source_code)
-                    print(f"Successfully saved source code to {file_path}")
-                else:
-                    print(f"Failed to get source code for {problem_name}")
-                time.sleep(2) # Be respectful to Codeforces servers
-
-    finally:
-        driver.quit()
-        print("Scraping process complete.")
+    print("Scraping process complete.")
 
 if __name__ == '__main__':
     main()
