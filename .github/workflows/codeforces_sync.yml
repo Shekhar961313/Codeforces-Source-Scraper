@@ -28,6 +28,7 @@ jobs:
           CF_HANDLE: ${{ secrets.CF_HANDLE }}
           CF_CLEARANCE: ${{ secrets.CF_CLEARANCE }}
           SESSION_ID: ${{ secrets.SESSION_ID }}
+          USER_AGENT: ${{ secrets.USER_AGENT }} # Add this line
         run: python scraper.py
 
       - name: Commit and push changes
